@@ -1,8 +1,68 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Zap, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { Zap, CheckCircle, AlertCircle, Clock, Search, Satellite, Sparkles, Mail, BarChart3, ArrowRight } from 'lucide-react'
+
+interface PipelineStep {
+  id: string;
+  emoji: string;
+  name: string;
+  description: string;
+  status: 'functional' | 'missing_key' | 'unconfigured';
+  count?: number;
+  requirement?: string;
+}
+
+const pipelineSteps: PipelineStep[] = [
+  {
+    id: 'scraping',
+    emoji: '🔍',
+    name: 'Scraping DVF',
+    description: 'Récupération des données immobilières',
+    status: 'functional',
+    count: 156,
+  },
+  {
+    id: 'filtering',
+    emoji: '🎯',
+    name: 'Filtrage',
+    description: 'Propriétés qualifiées selon critères',
+    status: 'functional',
+    count: 142,
+  },
+  {
+    id: 'satellite',
+    emoji: '🛰️',
+    name: 'Image Satellite',
+    description: 'Capture des images de localisation',
+    status: 'missing_key',
+    requirement: 'Clé Google Maps API',
+  },
+  {
+    id: 'ai',
+    emoji: '🎨',
+    name: 'Génération IA',
+    description: 'Génération d\'images avant/après',
+    status: 'missing_key',
+    requirement: 'Clé Stability AI',
+  },
+  {
+    id: 'email',
+    emoji: '📧',
+    name: 'Email',
+    description: 'Envoi des campagnes email',
+    status: 'missing_key',
+    requirement: 'Clé Brevo API',
+  },
+  {
+    id: 'follow_up',
+    emoji: '🔄',
+    name: 'Suivi',
+    description: 'Tracking et suivi des interactions',
+    status: 'functional',
+  },
+];
 
 const mockJobs = [
   {
@@ -81,17 +141,97 @@ const statusConfig = {
 
 export default function PipelinePage() {
   const [expandedJob, setExpandedJob] = useState<string | null>(null)
+  const [expandedStep, setExpandedStep] = useState<string | null>(null)
 
   const activeJobs = mockJobs.filter((j) => j.status !== 'completed')
   const completedJobs = mockJobs.filter((j) => j.status === 'completed')
+
+  const getStatusIcon = (status: PipelineStep['status']) => {
+    switch (status) {
+      case 'functional':
+        return <CheckCircle className="w-5 h-5 text-green-400" />;
+      case 'missing_key':
+        return <AlertCircle className="w-5 h-5 text-yellow-400" />;
+      case 'unconfigured':
+        return <AlertCircle className="w-5 h-5 text-red-400" />;
+    }
+  };
+
+  const getStatusLabel = (status: PipelineStep['status']) => {
+    switch (status) {
+      case 'functional':
+        return 'Fonctionnel';
+      case 'missing_key':
+        return 'Clé manquante';
+      case 'unconfigured':
+        return 'Non configuré';
+    }
+  };
 
   return (
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold">Pipeline Monitoring</h1>
-        <p className="text-slate-400 mt-2">Track active and completed processing jobs</p>
+        <h1 className="text-3xl font-bold">Pipeline de Traitement</h1>
+        <p className="text-slate-400 mt-2">Pipeline de transformation des données immobilières en prospects qualifiés</p>
       </div>
+
+      {/* Pipeline Steps Visual */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Étapes du Pipeline</CardTitle>
+          <CardDescription>Statut de chaque étape du processus de traitement</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {pipelineSteps.map((step, index) => (
+              <div key={step.id}>
+                <div
+                  className="p-4 border border-slate-700 rounded-lg hover:border-slate-600 cursor-pointer transition-colors"
+                  onClick={() => setExpandedStep(expandedStep === step.id ? null : step.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 flex-1">
+                      <div className="text-3xl">{step.emoji}</div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg">{step.name}</h3>
+                        <p className="text-sm text-slate-400">{step.description}</p>
+                      </div>
+                      {step.count !== undefined && (
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-blue-400">{step.count}</p>
+                          <p className="text-xs text-slate-400">éléments</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {getStatusIcon(step.status)}
+                      <span className="text-sm font-medium text-slate-400">{getStatusLabel(step.status)}</span>
+                    </div>
+                  </div>
+
+                  {expandedStep === step.id && step.requirement && (
+                    <div className="mt-4 pt-4 border-t border-slate-700">
+                      <p className="text-sm text-yellow-400">
+                        {step.requirement}
+                      </p>
+                      <button className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">
+                        Configurer la clé API
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {index < pipelineSteps.length - 1 && (
+                  <div className="flex justify-center py-2">
+                    <ArrowRight className="w-4 h-4 text-slate-600 rotate-90" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Active Jobs */}
       <div>

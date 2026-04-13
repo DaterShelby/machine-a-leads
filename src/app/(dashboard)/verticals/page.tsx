@@ -30,90 +30,98 @@ const mockVerticals = [
   {
     id: 'piscine',
     name: 'Piscine',
-    description: 'Custom pool installations and renovations',
+    description: 'Installation et rénovation de piscines résidentielles',
     active: true,
+    targeting: 'Maisons avec terrain > 300m², prix > 500k€',
     stats: {
       totalLeads: 452,
       conversionRate: 12.5,
     },
-    prompt: 'Generate beautiful before/after images for residential pool installations in Mediterranean style...',
+    prompt: 'Générez des images avant/après magnifiques pour l\'installation de piscines résidentielles en style méditerranéen. Montrez une belle piscine turquoise avec des pavés en pierre naturelle, un coin détente avec des transats, et une ambiance méditerranéenne luxueuse.',
   },
   {
     id: 'solaire',
     name: 'Solaire',
-    description: 'Solar panel systems and renewable energy',
+    description: 'Systèmes de panneaux solaires et énergies renouvelables',
     active: true,
+    targeting: 'Toitures sud-exposées, maisons récentes, budget > 15k€',
     stats: {
       totalLeads: 389,
       conversionRate: 18.3,
     },
-    prompt: 'Create visualizations showing solar panel installations on residential roofs...',
+    prompt: 'Créez des visualisations montrant l\'installation de panneaux solaires sur les toits résidentiels. Montrez des panneaux noirs modernes intégrés harmonieusement, avec un compteur digital montrant la production énergétique.',
   },
   {
     id: 'terrasse',
     name: 'Terrasse',
-    description: 'Outdoor terrace design and construction',
+    description: 'Design et construction de terrasses extérieures',
     active: true,
+    targeting: 'Jardins spacieux, maisons >200m², terrain plat',
     stats: {
       totalLeads: 267,
       conversionRate: 15.7,
     },
-    prompt: 'Generate AI images of beautiful outdoor terrace designs for residential properties...',
+    prompt: 'Générez des images IA de beaux designs de terrasses extérieures pour propriétés résidentielles. Montrez des pavés contemporains, du mobilier design, et une atmosphère accueillante.',
   },
   {
     id: 'veranda',
     name: 'Veranda',
-    description: 'Veranda and conservatory installations',
+    description: 'Installation de vérandas et véroux',
     active: true,
+    targeting: 'Maisons avec accès jardin, budget > 20k€',
     stats: {
       totalLeads: 345,
       conversionRate: 22.1,
     },
-    prompt: 'Create visualizations of modern veranda additions to residential homes...',
+    prompt: 'Créez des visualisations d\'ajouts de vérandas modernes aux maisons résidentielles. Montrez des structures légères, des vitres claires, et l\'intégration harmonieuse avec l\'architecture existante.',
   },
   {
     id: 'paysager',
     name: 'Paysager',
-    description: 'Landscape design and outdoor beautification',
+    description: 'Design paysager et embellissement extérieur',
     active: true,
+    targeting: 'Terrains > 500m², propriétaires maisons individuelles',
     stats: {
       totalLeads: 278,
       conversionRate: 14.2,
     },
-    prompt: 'Generate landscape design visualizations for residential gardens and outdoor spaces...',
+    prompt: 'Générez des visualisations de design paysager pour jardins et espaces extérieurs résidentiels. Montrez des plantes matures, des chemins, et un aménagement professionnel.',
   },
   {
     id: 'extension',
     name: 'Extension',
-    description: 'Home extensions and additions',
+    description: 'Extensions et agrandissements de maisons',
     active: true,
+    targeting: 'Maisons > 20 ans, terrain disponible, budget > 50k€',
     stats: {
       totalLeads: 312,
       conversionRate: 19.8,
     },
-    prompt: 'Create before/after visualizations of residential home extensions...',
+    prompt: 'Créez des visualisations avant/après d\'extensions de maisons résidentielles. Montrez l\'intégration architecturale, l\'agrandissement de l\'espace de vie, et l\'amélioration de la valeur.',
   },
   {
     id: 'carport',
     name: 'Carport',
-    description: 'Carport and covered parking solutions',
+    description: 'Carports et solutions de parking couvert',
     active: false,
+    targeting: 'Propriétés avec allée, petits budgets',
     stats: {
       totalLeads: 89,
       conversionRate: 11.2,
     },
-    prompt: 'Generate visualizations of modern carport installations...',
+    prompt: 'Générez des visualisations d\'installations de carports modernes. Montrez des structures légères et fonctionnelles.',
   },
   {
     id: 'cloture',
-    name: 'Cloture',
-    description: 'Fencing and perimeter solutions',
+    name: 'Clôture',
+    description: 'Clôtures et solutions de périmètre',
     active: false,
+    targeting: 'Terrains avec périmètre visible, maisons neuves',
     stats: {
       totalLeads: 123,
       conversionRate: 13.5,
     },
-    prompt: 'Create visualizations of modern fence designs for residential properties...',
+    prompt: 'Créez des visualisations de designs de clôtures modernes pour propriétés résidentielles. Montrez des matériaux de qualité et une intégration harmonieuse.',
   },
 ]
 
@@ -174,8 +182,14 @@ export default function VerticalsPage() {
                     </button>
                   </div>
 
+                  {/* Targeting */}
+                  <div className="py-3 border-y border-slate-700">
+                    <p className="text-xs text-slate-400 mb-1">Critères de ciblage</p>
+                    <p className="text-sm text-slate-300">{vertical.targeting}</p>
+                  </div>
+
                   {/* Stats */}
-                  <div className="grid grid-cols-2 gap-3 py-3 border-y border-slate-700">
+                  <div className="grid grid-cols-2 gap-3 py-3">
                     <div>
                       <p className="text-xs text-slate-400">Total Leads</p>
                       <p className="text-lg font-semibold">
@@ -208,16 +222,17 @@ export default function VerticalsPage() {
                     <div className="mt-4 pt-4 border-t border-slate-700 space-y-3">
                       <div>
                         <label className="block text-sm font-medium mb-2">
-                          AI Prompt
+                          Prompt IA spécifique au vertical
                         </label>
                         <textarea
                           value={vertical.prompt}
                           className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                          rows={3}
+                          rows={4}
+                          readOnly
                         />
                       </div>
                       <button className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors text-sm">
-                        Save Changes
+                        Éditer le prompt
                       </button>
                     </div>
                   )}

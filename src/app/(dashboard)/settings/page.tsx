@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Eye, EyeOff, Copy, Check } from 'lucide-react'
+import { Eye, EyeOff, Copy, Check, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile')
@@ -15,9 +15,25 @@ export default function SettingsPage() {
     phone: '+33 1 23 45 67 89',
   })
   const [apiKeys, setApiKeys] = useState({
-    stabilityAI: 'sk-stability_abc123def456ghi789jkl...',
-    googleMaps: 'AIzaSyBK3abCdEfGhIjKlMnOpQrStUvWxYz123abc...',
-    brevo: 'xkeysib-1234567890abcdefghijklmnopq...',
+    stabilityAI: '',
+    googleMaps: '',
+    brevo: '',
+  })
+  const [targetingParams, setTargetingParams] = useState({
+    prixMin: 300000,
+    prixMax: 2000000,
+    surfaceMin: 200,
+    departments: '06,13,83,84',
+  })
+  const [emailSettings, setEmailSettings] = useState({
+    senderName: 'Machine à Leads',
+    senderEmail: 'contact@machinealeads.fr',
+    defaultSubject: 'Transformez votre propriété avec nos experts',
+  })
+  const [testingStatus, setTestingStatus] = useState<Record<string, 'idle' | 'testing' | 'success' | 'error'>>({
+    googleMaps: 'idle',
+    stabilityAI: 'idle',
+    brevo: 'idle',
   })
   const [notifications, setNotifications] = useState({
     emailCampaignStarted: true,
@@ -55,11 +71,28 @@ export default function SettingsPage() {
     }))
   }
 
+  const handleTestConnection = async (provider: string) => {
+    setTestingStatus(prev => ({ ...prev, [provider]: 'testing' }))
+    // Simuler un test de connexion
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    const hasKey = apiKeys[provider as keyof typeof apiKeys]
+    setTestingStatus(prev => ({ ...prev, [provider]: hasKey ? 'success' : 'error' }))
+  }
+
+  const handleSaveSettings = () => {
+    // Sauvegarder dans localStorage pour la démo
+    localStorage.setItem('apiKeys', JSON.stringify(apiKeys))
+    localStorage.setItem('targetingParams', JSON.stringify(targetingParams))
+    localStorage.setItem('emailSettings', JSON.stringify(emailSettings))
+    alert('Paramètres sauvegardés!')
+  }
+
   const tabs = [
-    { id: 'profile', label: 'Profile' },
-    { id: 'api', label: 'API Keys' },
+    { id: 'profile', label: 'Profil' },
+    { id: 'api', label: 'Clés API' },
+    { id: 'targeting', label: 'Ciblage' },
+    { id: 'email', label: 'Email' },
     { id: 'notifications', label: 'Notifications' },
-    { id: 'billing', label: 'Billing' },
   ]
 
   return (
@@ -149,18 +182,26 @@ export default function SettingsPage() {
       {/* API Keys Tab */}
       {activeTab === 'api' && (
         <div className="space-y-6">
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
+            <p className="text-sm text-blue-300">
+              Les clés API sont stockées localement pour cette démo. En production, elles seraient chiffrées et stockées de manière sécurisée.
+            </p>
+          </div>
+
           {Object.entries(apiKeys).map(([key, value]) => {
             const labels: Record<string, string> = {
-              stabilityAI: 'Stability AI API Key',
-              googleMaps: 'Google Maps API Key',
-              brevo: 'Brevo (Sendinblue) API Key',
+              stabilityAI: 'Clé Stability AI',
+              googleMaps: 'Clé Google Maps API',
+              brevo: 'Clé API Brevo',
             }
 
             const descriptions: Record<string, string> = {
-              stabilityAI: 'Used for AI image generation',
-              googleMaps: 'Used for satellite imagery and location services',
-              brevo: 'Used for email sending and campaign management',
+              stabilityAI: 'Utilisée pour la génération d\'images IA',
+              googleMaps: 'Utilisée pour les images satellites et services de localisation',
+              brevo: 'Utilisée pour l\'envoi d\'emails et gestion des campagnes',
             }
+
+            const testStatus = testingStatus[key];
 
             return (
               <Card key={key}>
@@ -173,8 +214,9 @@ export default function SettingsPage() {
                     <input
                       type={showPassword[key] ? 'text' : 'password'}
                       value={value}
-                      readOnly
-                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none font-mono text-sm pr-20"
+                      onChange={(e) => setApiKeys(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder={`Entrez votre ${labels[key]}`}
+                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 font-mono text-sm pr-20"
                     />
                     <button
                       onClick={() => togglePasswordVisibility(key)}
@@ -186,24 +228,146 @@ export default function SettingsPage() {
                         <Eye className="w-5 h-5" />
                       )}
                     </button>
-                    <button
-                      onClick={() => copyToClipboard(key, value)}
-                      className="absolute right-2.5 top-2.5 p-1 text-slate-400 hover:text-white"
-                    >
-                      {copiedKey === key ? (
-                        <Check className="w-5 h-5 text-green-400" />
-                      ) : (
-                        <Copy className="w-5 h-5" />
-                      )}
-                    </button>
+                    {value && (
+                      <button
+                        onClick={() => copyToClipboard(key, value)}
+                        className="absolute right-2.5 top-2.5 p-1 text-slate-400 hover:text-white"
+                      >
+                        {copiedKey === key ? (
+                          <Check className="w-5 h-5 text-green-400" />
+                        ) : (
+                          <Copy className="w-5 h-5" />
+                        )}
+                      </button>
+                    )}
                   </div>
-                  <button className="px-6 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg font-medium transition-colors text-sm">
-                    Regenerate Key
+                  <button
+                    onClick={() => handleTestConnection(key)}
+                    disabled={!value || testStatus === 'testing'}
+                    className={`px-6 py-2 rounded-lg font-medium transition-colors text-sm flex items-center gap-2 ${
+                      testStatus === 'success' ? 'bg-green-600 hover:bg-green-700' :
+                      testStatus === 'error' ? 'bg-red-600 hover:bg-red-700' :
+                      'bg-slate-800 hover:bg-slate-700 disabled:bg-slate-700 disabled:opacity-50'
+                    }`}
+                  >
+                    {testStatus === 'testing' && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {testStatus === 'success' && <CheckCircle className="w-4 h-4" />}
+                    {testStatus === 'error' && <AlertCircle className="w-4 h-4" />}
+                    {testStatus === 'testing' ? 'Test en cours...' :
+                     testStatus === 'success' ? 'Connexion OK' :
+                     testStatus === 'error' ? 'Erreur' :
+                     'Tester la connexion'}
                   </button>
                 </CardContent>
               </Card>
             )
           })}
+        </div>
+      )}
+
+      {/* Targeting Tab */}
+      {activeTab === 'targeting' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Paramètres de ciblage</CardTitle>
+              <CardDescription>Configurez les critères de sélection des propriétés</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Prix minimum (€)</label>
+                  <input
+                    type="number"
+                    value={targetingParams.prixMin}
+                    onChange={(e) => setTargetingParams(prev => ({ ...prev, prixMin: parseInt(e.target.value) }))}
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Prix maximum (€)</label>
+                  <input
+                    type="number"
+                    value={targetingParams.prixMax}
+                    onChange={(e) => setTargetingParams(prev => ({ ...prev, prixMax: parseInt(e.target.value) }))}
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Surface terrain minimum (m²)</label>
+                <input
+                  type="number"
+                  value={targetingParams.surfaceMin}
+                  onChange={(e) => setTargetingParams(prev => ({ ...prev, surfaceMin: parseInt(e.target.value) }))}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Départements (codes séparés par des virgules)</label>
+                <input
+                  type="text"
+                  value={targetingParams.departments}
+                  onChange={(e) => setTargetingParams(prev => ({ ...prev, departments: e.target.value }))}
+                  placeholder="06,13,83,84"
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <button
+                onClick={handleSaveSettings}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
+              >
+                Enregistrer les paramètres
+              </button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Email Tab */}
+      {activeTab === 'email' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Paramètres d\'email</CardTitle>
+              <CardDescription>Configuration des emails de campagne</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Nom de l\'expéditeur</label>
+                <input
+                  type="text"
+                  value={emailSettings.senderName}
+                  onChange={(e) => setEmailSettings(prev => ({ ...prev, senderName: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Email de l\'expéditeur</label>
+                <input
+                  type="email"
+                  value={emailSettings.senderEmail}
+                  onChange={(e) => setEmailSettings(prev => ({ ...prev, senderEmail: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Objet par défaut</label>
+                <input
+                  type="text"
+                  value={emailSettings.defaultSubject}
+                  onChange={(e) => setEmailSettings(prev => ({ ...prev, defaultSubject: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <button
+                onClick={handleSaveSettings}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
+              >
+                Enregistrer les paramètres
+              </button>
+            </CardContent>
+          </Card>
         </div>
       )}
 

@@ -1,9 +1,27 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Download, ChevronRight, Search } from 'lucide-react'
+import { Download, ChevronRight, Search, Loader2 } from 'lucide-react'
+
+interface DVFProperty {
+  id: string;
+  adresse: string;
+  ville: string;
+  code_postal: string;
+  prix: number;
+  surface_terrain: number;
+  surface_bati: number;
+  pieces: number;
+  type_local: string;
+  date_mutation: string;
+}
+
+interface Lead extends DVFProperty {
+  status: 'non_traite' | 'image_satellite' | 'ia_genere' | 'email_envoye';
+  vertical?: string;
+}
 
 const mockLeads = [
   {
@@ -187,16 +205,57 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [selectedLeads, setSelectedLeads] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
+  const [codePostal, setCodePostal] = useState('06000')
+  const [prixMin, setPrixMin] = useState('500000')
+  const [prixMax, setPrixMax] = useState('1200000')
+  const [dvfLeads, setDvfLeads] = useState<Lead[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loadedCount, setLoadedCount] = useState(0)
 
-  const verticals = ['all', ...Array.from(new Set(mockLeads.map((l) => l.vertical)))]
-  const statuses = ['all', ...Array.from(new Set(mockLeads.map((l) => l.status)))]
+  // Fusionner les mock leads avec les DVF leads
+  const [allLeads, setAllLeads] = useState<Lead[]>(mockLeads)
+
+  useEffect(() => {
+    setAllLeads([...dvfLeads, ...mockLeads])
+  }, [dvfLeads])
+
+  const handleLoadDVFLeads = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(
+        `/api/dvf/search?code_postal=${codePostal}&prix_min=${prixMin}&prix_max=${prixMax}&limit=50`
+      )
+
+      if (!response.ok) throw new Error('Failed to fetch properties')
+
+      const data = await response.json()
+      const transformedLeads: Lead[] = (data.data || []).map((prop: DVFProperty, idx: number) => ({
+        ...prop,
+        status: 'non_traite' as const,
+        vertical: 'Propriété DVF',
+      }))
+
+      setDvfLeads(transformedLeads)
+      setLoadedCount(transformedLeads.length)
+    } catch (error) {
+      console.error('Error loading DVF leads:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verticals = ['all', 'Propriété DVF', ...Array.from(new Set(mockLeads.map((l) => l.vertical)))]
+  const statuses = ['all', ...Array.from(new Set(allLeads.map((l) => l.status)))]
   const itemsPerPage = 10
 
-  const filteredLeads = mockLeads.filter((lead) => {
+  const filteredLeads = allLeads.filter((lead) => {
+    const leadName = (lead as any).name || lead.adresse || ''
+    const leadEmail = (lead as any).email || lead.code_postal || ''
+    const leadCity = (lead as any).city || lead.ville || ''
     const matchesSearch =
-      lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.city.toLowerCase().includes(searchTerm.toLowerCase())
+      leadName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      leadEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      leadCity.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesVertical = verticalFilter === 'all' || lead.vertical === verticalFilter
     const matchesStatus = statusFilter === 'all' || lead.status === statusFilter
     return matchesSearch && matchesVertical && matchesStatus
@@ -233,12 +292,62 @@ export default function LeadsPage() {
         <p className="text-slate-400 mt-2">Manage and view all your leads</p>
       </div>
 
+      {/* DVF Import Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Charger les données DVF</CardTitle>
+          <CardDescription>Importez les propriétés en vente depuis l'API DVF gratuite</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Code Postal</label>
+              <input
+                type="text"
+                value={codePostal}
+                onChange={(e) => setCodePostal(e.target.value)}
+                placeholder="06000"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Prix min (€)</label>
+              <input
+                type="text"
+                value={prixMin}
+                onChange={(e) => setPrixMin(e.target.value)}
+                placeholder="500000"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Prix max (€)</label>
+              <input
+                type="text"
+                value={prixMax}
+                onChange={(e) => setPrixMax(e.target.value)}
+                placeholder="1200000"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+          <button
+            onClick={handleLoadDVFLeads}
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 rounded-lg font-medium flex items-center gap-2 transition-colors"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            {loadedCount > 0 ? `Charger DVF (${loadedCount})` : 'Charger depuis DVF'}
+          </button>
+        </CardContent>
+      </Card>
+
       {/* Search Bar */}
       <div className="relative">
         <Search className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
         <input
           type="text"
-          placeholder="Search by name, email, or city..."
+          placeholder="Rechercher par adresse, email ou ville..."
           value={searchTerm}
           onChange={(e) => {
             setSearchTerm(e.target.value)
@@ -337,55 +446,67 @@ export default function LeadsPage() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedLeads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-slate-800 hover:bg-slate-800/50">
-                    <td className="py-3 px-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedLeads.includes(lead.id)}
-                        onChange={() => toggleLead(lead.id)}
-                        className="w-4 h-4 rounded border-slate-700"
-                      />
-                    </td>
-                    <td className="py-3 px-4">
-                      <div>
-                        <p className="font-medium">{lead.name}</p>
-                        <p className="text-xs text-slate-400">{lead.email}</p>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div>
-                        <p className="text-slate-300">{lead.address}</p>
-                        <p className="text-xs text-slate-400">{lead.city}</p>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-1 rounded text-xs font-medium bg-slate-800 text-slate-200">
-                        {lead.vertical}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-                          statusColor[lead.status as keyof typeof statusColor]
-                        }`}
-                      >
-                        {lead.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-400 text-xs">
-                      {new Date(lead.date).toLocaleDateString('fr-FR')}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <Link
-                        href={`/leads/${lead.id}`}
-                        className="inline-flex text-blue-400 hover:text-blue-300 transition-colors"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {paginatedLeads.map((lead) => {
+                  const isFromDVF = (lead as any).type_local;
+                  const leadName = isFromDVF ? lead.adresse : (lead as any).name || '';
+                  const leadEmail = isFromDVF ? lead.prix.toString() : (lead as any).email || '';
+                  const leadCity = isFromDVF ? lead.ville : (lead as any).city || '';
+                  const leadDate = lead.date_mutation || (lead as any).date || '';
+
+                  return (
+                    <tr key={lead.id} className="border-b border-slate-800 hover:bg-slate-800/50">
+                      <td className="py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedLeads.includes(lead.id)}
+                          onChange={() => toggleLead(lead.id)}
+                          className="w-4 h-4 rounded border-slate-700"
+                        />
+                      </td>
+                      <td className="py-3 px-4">
+                        <div>
+                          <p className="font-medium text-sm">{leadName}</p>
+                          <p className="text-xs text-slate-400">{isFromDVF ? `${lead.surface_terrain} m²` : leadEmail}</p>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div>
+                          <p className="text-slate-300 text-sm">{leadCity}</p>
+                          <p className="text-xs text-slate-400">{lead.code_postal}</p>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-1 rounded text-xs font-medium bg-slate-800 text-slate-200">
+                          {lead.vertical}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-1 rounded text-xs font-medium capitalize ${
+                            statusColor[lead.status as keyof typeof statusColor] || 'bg-slate-800 text-slate-200'
+                          }`}
+                        >
+                          {lead.status === 'non_traite' && 'Non traité'}
+                          {lead.status === 'image_satellite' && 'Image satellite'}
+                          {lead.status === 'ia_genere' && 'IA généré'}
+                          {lead.status === 'email_envoye' && 'Email envoyé'}
+                          {!(lead.status as any).includes('_') && lead.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-400 text-xs">
+                        {new Date(leadDate).toLocaleDateString('fr-FR')}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <Link
+                          href={`/leads/${lead.id}`}
+                          className="inline-flex text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
