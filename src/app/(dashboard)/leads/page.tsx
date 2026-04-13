@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Search, Loader2, Satellite, Sparkles, Mail, MapPin,
@@ -52,6 +52,143 @@ interface LeadCard extends Property {
   aiImage?: string;
 }
 
+/**
+ * Génère une image "APRÈS" avec piscine superposée sur l'image satellite
+ * 100% côté client via Canvas — GRATUIT, instantané, sans API
+ */
+function generatePoolOverlay(satelliteBase64: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject('Canvas not supported'); return; }
+
+      // Dessiner l'image satellite d'origine
+      ctx.drawImage(img, 0, 0);
+
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      // Piscine 10m x 5m ≈ 110px x 60px à zoom 19
+      const poolW = 110;
+      const poolH = 60;
+      const deckPad = 12; // margelle
+      const radius = 8;
+      const poolX = cx - poolW / 2;
+      const poolY = cy - poolH / 2;
+      const deckX = poolX - deckPad;
+      const deckY = poolY - deckPad;
+      const deckW = poolW + deckPad * 2;
+      const deckH = poolH + deckPad * 2;
+
+      // === OMBRE portée ===
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetX = 4;
+      ctx.shadowOffsetY = 4;
+      ctx.fillStyle = 'rgba(0,0,0,0.01)';
+      roundRect(ctx, deckX, deckY, deckW, deckH, radius + 4);
+      ctx.fill();
+      ctx.restore();
+
+      // === TERRASSE / MARGELLE (beige pierre) ===
+      ctx.save();
+      const deckGrad = ctx.createLinearGradient(deckX, deckY, deckX + deckW, deckY + deckH);
+      deckGrad.addColorStop(0, '#d4c5a9');
+      deckGrad.addColorStop(0.5, '#c9b896');
+      deckGrad.addColorStop(1, '#bfad87');
+      ctx.fillStyle = deckGrad;
+      roundRect(ctx, deckX, deckY, deckW, deckH, radius + 4);
+      ctx.fill();
+      // Texture légère de la margelle
+      ctx.strokeStyle = 'rgba(160, 140, 100, 0.3)';
+      ctx.lineWidth = 0.5;
+      for (let i = deckY; i < deckY + deckH; i += 8) {
+        ctx.beginPath();
+        ctx.moveTo(deckX + 2, i);
+        ctx.lineTo(deckX + deckW - 2, i);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // === PISCINE (eau turquoise) ===
+      ctx.save();
+      const waterGrad = ctx.createRadialGradient(
+        cx, cy, 5,
+        cx, cy, poolW * 0.7
+      );
+      waterGrad.addColorStop(0, 'rgba(0, 200, 220, 0.92)');
+      waterGrad.addColorStop(0.3, 'rgba(0, 170, 200, 0.90)');
+      waterGrad.addColorStop(0.7, 'rgba(0, 130, 170, 0.88)');
+      waterGrad.addColorStop(1, 'rgba(0, 100, 150, 0.85)');
+      ctx.fillStyle = waterGrad;
+      roundRect(ctx, poolX, poolY, poolW, poolH, radius);
+      ctx.fill();
+
+      // Reflets d'eau
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = '#ffffff';
+      // Reflet principal diagonal
+      ctx.beginPath();
+      ctx.ellipse(cx - 15, cy - 10, 30, 6, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Petit reflet
+      ctx.beginPath();
+      ctx.ellipse(cx + 20, cy + 8, 15, 3, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bordure intérieure de la piscine
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, poolX + 2, poolY + 2, poolW - 4, poolH - 4, radius - 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // === TRANSATS (2 petits rectangles) ===
+      ctx.save();
+      // Transat 1
+      ctx.fillStyle = '#e8dcc8';
+      ctx.fillRect(deckX + deckW + 5, cy - 20, 6, 18);
+      ctx.fillStyle = '#d4c5a9';
+      ctx.fillRect(deckX + deckW + 4, cy - 22, 8, 4);
+      // Transat 2
+      ctx.fillStyle = '#e8dcc8';
+      ctx.fillRect(deckX + deckW + 5, cy + 4, 6, 18);
+      ctx.fillStyle = '#d4c5a9';
+      ctx.fillRect(deckX + deckW + 4, cy + 2, 8, 4);
+      ctx.restore();
+
+      // === LABEL "PISCINE 10x5m" ===
+      // (pas de label sur l'image elle-même, ça sera dans l'UI)
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject('Failed to load satellite image');
+    img.src = satelliteBase64;
+  });
+}
+
+/** Utilitaire : rectangle arrondi */
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+
 export default function LeadsPage() {
   const [codeInsee, setCodeInsee] = useState("95203");
   const [prixMin, setPrixMin] = useState("500000");
@@ -62,6 +199,7 @@ export default function LeadsPage() {
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [batchProcessing, setBatchProcessing] = useState(false);
+  const [aiMode, setAiMode] = useState<'local' | 'api'>('local'); // local = gratuit Canvas, api = fal.ai/Stability
 
   const handleCommuneChange = (v: string) => {
     setCodeInsee(v);
@@ -85,7 +223,7 @@ export default function LeadsPage() {
     finally { setLoading(false); }
   };
 
-  // ─── STEP 2+3: Pipeline complet (satellite + IA) ──
+  // ─── STEP 2+3: Pipeline complet (satellite + piscine) ──
   const processLead = async (leadId: string, lat: number, lon: number) => {
     setProcessingId(leadId);
     setExpandedLead(leadId);
@@ -103,35 +241,45 @@ export default function LeadsPage() {
 
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'loading_ai', satelliteImage: satUrl } : l));
 
-      // IA PISCINE
-      const aiResp = await fetch('/api/generate-pool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: satData.image_base64 }),
-      });
-      if (!aiResp.ok) {
-        const errData = await aiResp.json().catch(() => ({}));
-        console.error('AI Error:', errData);
-        throw new Error(errData.error || `Erreur IA ${aiResp.status}`);
+      // GÉNÉRATION PISCINE
+      let aiImageUrl: string;
+
+      if (aiMode === 'local') {
+        // MODE GRATUIT: overlay Canvas côté client
+        aiImageUrl = await generatePoolOverlay(satUrl);
+      } else {
+        // MODE API: fal.ai ou Stability AI (côté serveur)
+        const aiResp = await fetch('/api/generate-pool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_base64: satData.image_base64 }),
+        });
+        if (!aiResp.ok) {
+          const errData = await aiResp.json().catch(() => ({}));
+          console.error('AI Error:', errData);
+          throw new Error(errData.error || `Erreur IA ${aiResp.status}`);
+        }
+        const aiData = await aiResp.json();
+        aiImageUrl = `data:${aiData.content_type};base64,${aiData.image_base64}`;
       }
-      const aiData = await aiResp.json();
 
       setLeads(prev => prev.map(l => l.id === leadId
-        ? { ...l, status: 'ai_ok', aiImage: `data:${aiData.content_type};base64,${aiData.image_base64}` }
+        ? { ...l, status: 'ai_ok', aiImage: aiImageUrl }
         : l
       ));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Pipeline error:', err);
       setLeads(prev => prev.map(l => l.id === leadId
         ? { ...l, status: l.satelliteImage ? 'satellite_ok' : 'idle' }
         : l
       ));
+      setError(err.message || 'Erreur pipeline');
     } finally {
       setProcessingId(null);
     }
   };
 
-  // ─── BATCH: Traiter les 5 premiers ────────────────
+  // ─── BATCH: Traiter les 3 premiers ────────────────
   const processBatch = async () => {
     setBatchProcessing(true);
     const toProcess = leads.filter(l => l.status === 'idle' && l.latitude && l.longitude).slice(0, 3);
@@ -147,7 +295,7 @@ export default function LeadsPage() {
     idle: { color: 'bg-slate-700 text-slate-300', icon: '⬜', label: 'Non traité' },
     loading_satellite: { color: 'bg-yellow-900 text-yellow-300', icon: '🛰️', label: 'Satellite...' },
     satellite_ok: { color: 'bg-blue-900 text-blue-300', icon: '🛰️', label: 'Satellite OK' },
-    loading_ai: { color: 'bg-purple-900 text-purple-300', icon: '🎨', label: 'IA en cours...' },
+    loading_ai: { color: 'bg-purple-900 text-purple-300', icon: '🎨', label: 'Piscine en cours...' },
     ai_ok: { color: 'bg-green-900 text-green-300', icon: '✅', label: 'Prêt à envoyer' },
     email_sent: { color: 'bg-emerald-900 text-emerald-300', icon: '📧', label: 'Email envoyé' },
   };
@@ -168,20 +316,42 @@ export default function LeadsPage() {
             Machine à Leads Piscine
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            DVF → Satellite → IA Piscine → Email personnalisé
+            DVF → Satellite → Projection Piscine → Email personnalisé
           </p>
         </div>
-        {leads.length > 0 && !batchProcessing && leads.some(l => l.status === 'idle') && (
-          <button onClick={processBatch}
-            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-lg font-medium text-sm flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20">
-            <Zap className="w-4 h-4" /> Traiter les 3 premiers
-          </button>
-        )}
-        {batchProcessing && (
-          <div className="px-4 py-2 bg-purple-900/50 border border-purple-700 rounded-lg text-sm flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-purple-400" /> Pipeline en cours...
+        <div className="flex items-center gap-3">
+          {/* Mode toggle */}
+          <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1">
+            <button
+              onClick={() => setAiMode('local')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                aiMode === 'local' ? 'bg-green-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Gratuit
+            </button>
+            <button
+              onClick={() => setAiMode('api')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                aiMode === 'api' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              IA Pro
+            </button>
           </div>
-        )}
+
+          {leads.length > 0 && !batchProcessing && leads.some(l => l.status === 'idle') && (
+            <button onClick={processBatch}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-lg font-medium text-sm flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20">
+              <Zap className="w-4 h-4" /> Traiter les 3 premiers
+            </button>
+          )}
+          {batchProcessing && (
+            <div className="px-4 py-2 bg-purple-900/50 border border-purple-700 rounded-lg text-sm flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-purple-400" /> Pipeline en cours...
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── PIPELINE VISUEL ── */}
@@ -190,7 +360,9 @@ export default function LeadsPage() {
         <ArrowRight className="w-3 h-3" />
         <span className="flex items-center gap-1 text-yellow-400"><Satellite className="w-3.5 h-3.5" /> 2. Image satellite</span>
         <ArrowRight className="w-3 h-3" />
-        <span className="flex items-center gap-1 text-purple-400"><Sparkles className="w-3.5 h-3.5" /> 3. IA piscine</span>
+        <span className="flex items-center gap-1 text-purple-400">
+          <Sparkles className="w-3.5 h-3.5" /> 3. Piscine {aiMode === 'local' ? '(gratuit)' : '(IA Pro)'}
+        </span>
         <ArrowRight className="w-3 h-3" />
         <span className="flex items-center gap-1 text-green-400"><Mail className="w-3.5 h-3.5" /> 4. Email perso</span>
       </div>
@@ -233,7 +405,7 @@ export default function LeadsPage() {
             { n: stats.total, label: 'Propriétés', color: 'text-blue-400' },
             { n: stats.withGps, label: 'Avec GPS', color: 'text-yellow-400' },
             { n: stats.satellite, label: 'Satellites', color: 'text-cyan-400' },
-            { n: stats.aiDone, label: 'IA prêts', color: 'text-green-400' },
+            { n: stats.aiDone, label: 'Piscines', color: 'text-green-400' },
           ].map((s, i) => (
             <div key={i} className="bg-slate-800/80 rounded-lg p-3 text-center">
               <p className={`text-2xl font-bold ${s.color}`}>{s.n}</p>
@@ -329,21 +501,23 @@ export default function LeadsPage() {
                     {/* APRÈS */}
                     <div>
                       <p className="text-xs font-semibold text-green-400 mb-2 flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5" /> APRÈS — Projection IA piscine
+                        <Sparkles className="w-3.5 h-3.5" /> APRÈS — Projection piscine
                       </p>
                       <div className="aspect-square rounded-xl overflow-hidden bg-slate-800 border border-slate-700 relative">
                         {lead.aiImage ? (
                           <>
-                            <img src={lead.aiImage} alt="IA Piscine" className="w-full h-full object-cover" />
+                            <img src={lead.aiImage} alt="Piscine" className="w-full h-full object-cover" />
                             <div className="absolute top-2 right-2 px-2 py-1 bg-green-600/90 rounded text-[10px] font-bold">
-                              PISCINE IA
+                              + PISCINE 10×5m
                             </div>
                           </>
                         ) : lead.status === 'loading_ai' ? (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-800/90">
                             <Loader2 className="w-10 h-10 animate-spin text-purple-400 mb-2" />
-                            <p className="text-xs text-purple-300">Génération piscine IA...</p>
-                            <p className="text-[10px] text-slate-500 mt-1">Stability AI SDXL Inpainting</p>
+                            <p className="text-xs text-purple-300">Génération piscine...</p>
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              {aiMode === 'local' ? 'Mode gratuit (Canvas)' : 'IA Pro (fal.ai)'}
+                            </p>
                           </div>
                         ) : (
                           <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600">
@@ -409,8 +583,8 @@ export default function LeadsPage() {
           <div className="flex items-center justify-center gap-4 text-xs text-slate-600">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Données DVF publiques</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> Google Maps satellite</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> Stability AI</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Brevo email</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Projection piscine</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Email Brevo</span>
           </div>
         </div>
       )}
