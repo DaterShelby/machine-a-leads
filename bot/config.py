@@ -20,19 +20,23 @@ IMAGES_DIR = DATA_DIR / "images"
 # Créer les répertoires s'ils n'existent pas
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-# Critères de filtrage
+# Critères de filtrage — défaut IDF
 PRICE_MIN = 500_000  # euros
 PRICE_MAX = 1_200_000  # euros
 LAND_MIN_M2 = 200  # m²
 
-# Départements à scanner (vides = scanner tous)
-DEPARTMENTS_TO_SCAN = [
-    # Laisser vide pour scanner toute la France
-    # Exemples: ['75', '92', '78'] pour Île-de-France
-]
+# Critères spécifiques Méru (60) — marché moins cher
+MERU_PRICE_MIN = 200_000
+MERU_PRICE_MAX = 600_000
+MERU_LAND_MIN_M2 = 300
+
+# Départements à scanner — FOCUS Île-de-France + Méru
+DEPARTMENTS_TO_SCAN = ['95', '92', '93', '60']
+PRIORITY_DEPARTMENT = '95'  # Val-d'Oise en priorité
 
 # APIs externes
-DVF_API_BASE = "https://api.cquest.org/dvf"
+DVF_CSV_BASE = "https://files.data.gouv.fr/geo-dvf/latest/csv/2023/communes"
+DVF_API_BASE = "https://api.cquest.org/dvf"  # DEPRECATED — utiliser DVF_CSV_BASE
 ADDRESS_API_BASE = "https://api-adresse.data.gouv.fr"
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 MAPBOX_API_KEY = os.getenv("MAPBOX_API_KEY", "")

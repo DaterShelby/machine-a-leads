@@ -26,8 +26,32 @@ interface Stats {
   max_price: number;
 }
 
+// Communes IDF par défaut — Val-d'Oise prioritaire
+const IDF_DEFAULT_COMMUNES = [
+  { label: "Domont (95)", value: "95203" },
+  { label: "Herblay (95)", value: "95306" },
+  { label: "Argenteuil (95)", value: "95018" },
+  { label: "Enghien-les-Bains (95)", value: "95219" },
+  { label: "Deuil-la-Barre (95)", value: "95197" },
+  { label: "Méry-sur-Oise (95)", value: "95424" },
+  { label: "Taverny (95)", value: "95607" },
+  { label: "Pontoise (95)", value: "95488" },
+  { label: "Cergy (95)", value: "95127" },
+  { label: "Franconville (95)", value: "95252" },
+  { label: "Sarcelles (95)", value: "95585" },
+  { label: "L'Isle-Adam (95)", value: "95351" },
+  { label: "Montmorency (95)", value: "95394" },
+  { label: "Rueil-Malmaison (92)", value: "92062" },
+  { label: "Nanterre (92)", value: "92049" },
+  { label: "Saint-Cloud (92)", value: "92064" },
+  { label: "Noisy-le-Grand (93)", value: "93051" },
+  { label: "Livry-Gargan (93)", value: "93046" },
+  { label: "Gagny (93)", value: "93032" },
+  { label: "Méru (60)", value: "60395" },
+];
+
 export default function DashboardPage() {
-  const [codePostal, setCodePostal] = useState("06000");
+  const [codeInsee, setCodeInsee] = useState("95203");
   const [prixMin, setPrixMin] = useState("500000");
   const [prixMax, setPrixMax] = useState("1200000");
   const [properties, setProperties] = useState<Property[]>([]);
@@ -40,12 +64,24 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Ajuster les prix automatiquement pour Méru
+  const handleCommuneChange = (newCode: string) => {
+    setCodeInsee(newCode);
+    if (newCode === "60395") {
+      setPrixMin("200000");
+      setPrixMax("600000");
+    } else {
+      setPrixMin("500000");
+      setPrixMax("1200000");
+    }
+  };
+
   const handleSearch = async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(
-        `/api/dvf/search?code_postal=${codePostal}&prix_min=${prixMin}&prix_max=${prixMax}&limit=50`
+        `/api/dvf/search?code_insee=${codeInsee}&prix_min=${prixMin}&prix_max=${prixMax}&limit=50`
       );
 
       if (!response.ok) throw new Error("Failed to fetch properties");
@@ -131,14 +167,16 @@ export default function DashboardPage() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Code Postal</label>
-              <input
-                type="text"
-                value={codePostal}
-                onChange={(e) => setCodePostal(e.target.value)}
-                placeholder="06000"
+              <label className="block text-sm font-medium mb-2">Commune (Île-de-France)</label>
+              <select
+                value={codeInsee}
+                onChange={(e) => handleCommuneChange(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
-              />
+              >
+                {IDF_DEFAULT_COMMUNES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Prix min (€)</label>
