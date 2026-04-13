@@ -1,0 +1,132 @@
+MACHINE A LEADS - FILES CREATED
+================================
+
+PROJECT ROOT
+- package.json
+- tsconfig.json
+- tsconfig.node.json
+- next.config.js
+- postcss.config.js
+- tailwind.config.ts
+- .gitignore
+- .eslintrc.json
+- README.md
+- SETUP.md (Installation & Setup Guide)
+
+SRC/APP - LAYOUTS & PAGES
+- src/app/layout.tsx (Root layout with Inter font, metadata, dark theme)
+- src/app/globals.css (Global Tailwind styles with custom utilities)
+- src/app/page.tsx (Landing page: hero, features, stats, CTAs)
+
+SRC/APP/(AUTH) - AUTHENTICATION ROUTES
+- src/app/(auth)/layout.tsx (Centered card auth layout)
+- src/app/(auth)/login/page.tsx (Email/password login form)
+- src/app/(auth)/register/page.tsx (Registration: name, email, password, company, sector)
+
+SRC/APP/(DASHBOARD) - DASHBOARD ROUTES
+- src/app/(dashboard)/layout.tsx (Dashboard with collapsible sidebar + top bar)
+- src/app/(dashboard)/page.tsx (Dashboard home with KPI stats & recent leads table)
+
+SRC/COMPONENTS/UI - REUSABLE UI COMPONENTS
+- src/components/ui/button.tsx (CVA variants: default, destructive, outline, secondary, ghost, link)
+- src/components/ui/card.tsx (Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter)
+- src/components/ui/input.tsx (Text input with label support)
+- src/components/ui/badge.tsx (Status badges: default, secondary, destructive, outline, success, warning)
+- src/components/ui/select.tsx (Styled dropdown selector)
+
+SRC/COMPONENTS/SHARED - SHARED FEATURE COMPONENTS
+- src/components/shared/stats-card.tsx (KPI display with trend indicators)
+- src/components/shared/data-table.tsx (Reusable table with pagination & empty states)
+
+SRC/MIDDLEWARE
+- src/middleware.ts (Route protection for /dashboard/* routes - TODO: Supabase integration)
+
+CONFIGURATION
+- tailwind.config.ts - Extended Slate/Blue colors, responsive utilities
+- next.config.js - Optimized for production, i18n French locale
+- tsconfig.json - Path aliases (@/* pointing to src/*)
+- postcss.config.js - Tailwind & Autoprefixer configuration
+
+TOTAL FILES CREATED: 28
+
+KEY FEATURES
+============
+
+✓ Landing Page
+  - Hero section with gradient title
+  - 3 feature cards (Multi-Vertical, IA Generative, Automatisé)
+  - Stats bar (2000+ properties, 8 sectors, 25%+ open rate)
+  - CTA buttons & gradient section
+  - Responsive navigation
+
+✓ Authentication Pages
+  - Clean minimal login form
+  - Multi-field registration with sector dropdown
+  - Auth layout with gradient background
+  - Links between login/register pages
+
+✓ Dashboard
+  - Collapsible sidebar with 7 nav items
+  - User info & logout button
+  - Responsive mobile menu
+  - Top bar with page title
+  - KPI stats grid with trend indicators
+  - Data table with pagination & status badges
+
+✓ UI Component Library
+  - 5 core UI components (Button, Card, Input, Badge, Select)
+  - 2 shared components (StatsCard, DataTable)
+  - Tailwind CSS styling throughout
+  - Dark theme with blue accents
+  - Responsive & accessible
+
+✓ Configuration
+  - Next.js 14 App Router setup
+  - Tailwind CSS dark mode
+  - TypeScript strict mode
+  - Path aliases for cleaner imports
+  - ESLint configuration
+  - French locale support
+
+DESIGN SYSTEM
+=============
+
+Colors:
+- Primary: Blue (#2563EB)
+- Background: Slate-950 (#020617)
+- Surfaces: Slate-900 (#0f172a), Slate-800 (#1e293b)
+- Text: Slate-50 (#f8fafc)
+- Muted: Slate-400 (#94a3b8)
+
+Typography:
+- Font: Inter (Google Fonts)
+- Sizes: Scaled (sm, base, lg, xl, 2xl, 3xl, 4xl, etc.)
+
+Spacing:
+- Based on 4px grid
+- Components use px-3, px-4, px-6, py-2, py-3, etc.
+- Gaps: 2, 4, 6, 8
+
+NEXT STEPS
+==========
+
+1. npm install
+2. npm run dev (test locally)
+3. Set up Supabase project & environment variables
+4. Implement auth functions (signUp, signInWithPassword)
+5. Update middleware with Supabase getUser()
+6. Create database schema & RLS policies
+7. Add dashboard routes (campaigns, leads, pipeline, templates, verticaux, settings)
+8. Implement API endpoints for CRUD operations
+9. Integrate AI image generation service
+10. Set up email service for lead outreach
+
+NOTES
+=====
+
+- All imports use path aliases (@/components, @/lib, etc.)
+- Components use "use client" directive where needed (form handling)
+- Tailwind configuration supports 24/7 dark mode
+- Ready for Supabase integration with placeholder comments
+- Icons from lucide-react (minimal dependencies)
+- Database schema and API endpoints can be added without modifying existing files
