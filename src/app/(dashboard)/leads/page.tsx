@@ -4,10 +4,9 @@ import { useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Search, Loader2, Satellite, Sparkles, Mail, MapPin,
-  Euro, Maximize, Calendar, ChevronDown, ChevronUp, Eye
+  Euro, Maximize, ChevronDown, ChevronUp, Play, Zap, Eye, ArrowRight
 } from 'lucide-react'
 
-// Communes IDF
 const IDF_COMMUNES = [
   { label: "Domont (95)", value: "95203" },
   { label: "Herblay (95)", value: "95306" },
@@ -21,10 +20,15 @@ const IDF_COMMUNES = [
   { label: "Franconville (95)", value: "95252" },
   { label: "L'Isle-Adam (95)", value: "95351" },
   { label: "Montmorency (95)", value: "95394" },
+  { label: "Eaubonne (95)", value: "95210" },
+  { label: "Sarcelles (95)", value: "95585" },
+  { label: "Soisy-sous-Montmorency (95)", value: "95563" },
   { label: "Rueil-Malmaison (92)", value: "92062" },
   { label: "Saint-Cloud (92)", value: "92064" },
+  { label: "Meudon (92)", value: "92048" },
   { label: "Noisy-le-Grand (93)", value: "93051" },
   { label: "Gagny (93)", value: "93032" },
+  { label: "Livry-Gargan (93)", value: "93046" },
   { label: "Méru (60)", value: "60395" },
 ];
 
@@ -40,8 +44,10 @@ interface Property {
   longitude: number;
 }
 
+type LeadStatus = 'idle' | 'loading_satellite' | 'satellite_ok' | 'loading_ai' | 'ai_ok' | 'email_sent';
+
 interface LeadCard extends Property {
-  status: 'scanning' | 'satellite_ready' | 'ai_generating' | 'ai_ready' | 'email_sent' | 'idle';
+  status: LeadStatus;
   satelliteImage?: string;
   aiImage?: string;
 }
@@ -55,453 +61,351 @@ export default function LeadsPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [batchProcessing, setBatchProcessing] = useState(false);
 
-  // Ajuster les prix pour Méru
-  const handleCommuneChange = (newCode: string) => {
-    setCodeInsee(newCode);
-    if (newCode === "60395") {
-      setPrixMin("200000");
-      setPrixMax("600000");
-    } else {
-      setPrixMin("500000");
-      setPrixMax("1200000");
-    }
+  const handleCommuneChange = (v: string) => {
+    setCodeInsee(v);
+    if (v === "60395") { setPrixMin("200000"); setPrixMax("600000"); }
+    else { setPrixMin("500000"); setPrixMax("1200000"); }
   };
 
-  // 1) Scanner les propriétés DVF
+  // ─── STEP 1: Scanner DVF ──────────────────────────
   const handleScan = async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null); setLeads([]);
     try {
-      const response = await fetch(
-        `/api/dvf/search?code_insee=${codeInsee}&prix_min=${prixMin}&prix_max=${prixMax}&limit=20`
-      );
-      if (!response.ok) throw new Error("Erreur API DVF");
-      const data = await response.json();
-
+      const resp = await fetch(`/api/dvf/search?code_insee=${codeInsee}&prix_min=${prixMin}&prix_max=${prixMax}&limit=30`);
+      if (!resp.ok) throw new Error("Erreur DVF");
+      const data = await resp.json();
       const newLeads: LeadCard[] = (data.data || [])
         .filter((p: Property) => p.latitude && p.longitude && p.latitude !== 0)
-        .map((p: Property) => ({
-          ...p,
-          status: 'idle' as const,
-        }));
-
+        .map((p: Property) => ({ ...p, status: 'idle' as const }));
       setLeads(newLeads);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
-      setLoading(false);
-    }
+      if (newLeads.length > 0) setExpandedLead(newLeads[0].id);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
   };
 
-  // 2) Récupérer l'image satellite
-  const fetchSatellite = useCallback(async (lead: LeadCard) => {
-    setProcessingId(lead.id);
-    setLeads(prev => prev.map(l =>
-      l.id === lead.id ? { ...l, status: 'scanning' } : l
-    ));
+  // ─── STEP 2+3: Pipeline complet (satellite + IA) ──
+  const processLead = useCallback(async (leadId: string) => {
+    setProcessingId(leadId);
+    setExpandedLead(leadId);
 
+    // SATELLITE
+    setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'loading_satellite' } : l));
     try {
-      const response = await fetch(
-        `/api/satellite?lat=${lead.latitude}&lon=${lead.longitude}&zoom=19`
-      );
-      if (!response.ok) throw new Error("Erreur satellite");
-      const data = await response.json();
+      const lead = leads.find(l => l.id === leadId);
+      if (!lead) return;
 
-      setLeads(prev => prev.map(l =>
-        l.id === lead.id
-          ? { ...l, status: 'satellite_ready', satelliteImage: `data:${data.content_type};base64,${data.image_base64}` }
-          : l
-      ));
-      setExpandedLead(lead.id);
-    } catch (err) {
-      console.error(err);
-      setLeads(prev => prev.map(l =>
-        l.id === lead.id ? { ...l, status: 'idle' } : l
-      ));
-    } finally {
-      setProcessingId(null);
-    }
-  }, []);
+      const satResp = await fetch(`/api/satellite?lat=${lead.latitude}&lon=${lead.longitude}&zoom=19`);
+      if (!satResp.ok) throw new Error("Erreur satellite");
+      const satData = await satResp.json();
+      const satUrl = `data:${satData.content_type};base64,${satData.image_base64}`;
 
-  // 3) Générer l'image IA avec piscine
-  const generatePool = useCallback(async (lead: LeadCard) => {
-    if (!lead.satelliteImage) return;
-    setProcessingId(lead.id);
-    setLeads(prev => prev.map(l =>
-      l.id === lead.id ? { ...l, status: 'ai_generating' } : l
-    ));
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'loading_ai', satelliteImage: satUrl } : l));
 
-    try {
-      // Extraire le base64 depuis le data URL
-      const base64 = lead.satelliteImage.split(',')[1];
-
-      const response = await fetch('/api/generate-pool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: base64 }),
-      });
-
-      if (!response.ok) throw new Error("Erreur génération IA");
-      const data = await response.json();
-
-      setLeads(prev => prev.map(l =>
-        l.id === lead.id
-          ? { ...l, status: 'ai_ready', aiImage: `data:${data.content_type};base64,${data.image_base64}` }
-          : l
-      ));
-    } catch (err) {
-      console.error(err);
-      setLeads(prev => prev.map(l =>
-        l.id === lead.id ? { ...l, status: 'satellite_ready' } : l
-      ));
-    } finally {
-      setProcessingId(null);
-    }
-  }, []);
-
-  // Traiter tout le pipeline pour un lead
-  const processLead = useCallback(async (lead: LeadCard) => {
-    // Step 1: Satellite
-    setProcessingId(lead.id);
-    setLeads(prev => prev.map(l =>
-      l.id === lead.id ? { ...l, status: 'scanning' } : l
-    ));
-
-    try {
-      const satResponse = await fetch(
-        `/api/satellite?lat=${lead.latitude}&lon=${lead.longitude}&zoom=19`
-      );
-      if (!satResponse.ok) throw new Error("Erreur satellite");
-      const satData = await satResponse.json();
-      const satelliteUrl = `data:${satData.content_type};base64,${satData.image_base64}`;
-
-      setLeads(prev => prev.map(l =>
-        l.id === lead.id ? { ...l, status: 'ai_generating', satelliteImage: satelliteUrl } : l
-      ));
-      setExpandedLead(lead.id);
-
-      // Step 2: AI Generation
-      const aiResponse = await fetch('/api/generate-pool', {
+      // IA PISCINE
+      const aiResp = await fetch('/api/generate-pool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image_base64: satData.image_base64 }),
       });
+      if (!aiResp.ok) throw new Error("Erreur IA");
+      const aiData = await aiResp.json();
 
-      if (!aiResponse.ok) throw new Error("Erreur génération IA");
-      const aiData = await aiResponse.json();
-
-      setLeads(prev => prev.map(l =>
-        l.id === lead.id
-          ? { ...l, status: 'ai_ready', aiImage: `data:${aiData.content_type};base64,${aiData.image_base64}` }
-          : l
+      setLeads(prev => prev.map(l => l.id === leadId
+        ? { ...l, status: 'ai_ok', aiImage: `data:${aiData.content_type};base64,${aiData.image_base64}` }
+        : l
       ));
     } catch (err) {
       console.error(err);
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'satellite_ok' } : l));
     } finally {
       setProcessingId(null);
     }
-  }, []);
+  }, [leads]);
 
-  const formatPrice = (p: number) => {
-    if (p >= 1000000) return `${(p / 1000000).toFixed(2)}M€`;
-    return `${(p / 1000).toFixed(0)}k€`;
+  // ─── BATCH: Traiter les 5 premiers ────────────────
+  const processBatch = async () => {
+    setBatchProcessing(true);
+    const toProcess = leads.filter(l => l.status === 'idle' && l.latitude && l.longitude).slice(0, 3);
+    for (const lead of toProcess) {
+      await processLead(lead.id);
+    }
+    setBatchProcessing(false);
   };
 
-  const statusBadge = (status: LeadCard['status']) => {
-    const map: Record<string, { bg: string; label: string }> = {
-      idle: { bg: 'bg-slate-600', label: 'Non traité' },
-      scanning: { bg: 'bg-yellow-600 animate-pulse', label: '🛰️ Satellite...' },
-      satellite_ready: { bg: 'bg-blue-600', label: '🛰️ Satellite ✓' },
-      ai_generating: { bg: 'bg-purple-600 animate-pulse', label: '🎨 IA en cours...' },
-      ai_ready: { bg: 'bg-green-600', label: '✅ Avant/Après prêt' },
-      email_sent: { bg: 'bg-emerald-600', label: '📧 Email envoyé' },
-    };
-    const s = map[status] || map.idle;
-    return <span className={`px-2 py-1 rounded text-xs font-medium ${s.bg}`}>{s.label}</span>;
+  const fmt = (p: number) => p >= 1000000 ? `${(p/1e6).toFixed(2)}M€` : `${(p/1000).toFixed(0)}k€`;
+
+  const statusConfig: Record<LeadStatus, { color: string; icon: string; label: string }> = {
+    idle: { color: 'bg-slate-700 text-slate-300', icon: '⬜', label: 'Non traité' },
+    loading_satellite: { color: 'bg-yellow-900 text-yellow-300', icon: '🛰️', label: 'Satellite...' },
+    satellite_ok: { color: 'bg-blue-900 text-blue-300', icon: '🛰️', label: 'Satellite OK' },
+    loading_ai: { color: 'bg-purple-900 text-purple-300', icon: '🎨', label: 'IA en cours...' },
+    ai_ok: { color: 'bg-green-900 text-green-300', icon: '✅', label: 'Prêt à envoyer' },
+    email_sent: { color: 'bg-emerald-900 text-emerald-300', icon: '📧', label: 'Email envoyé' },
   };
 
-  const leadsWithCoords = leads.filter(l => l.latitude && l.longitude);
-  const leadsWithSatellite = leads.filter(l => l.satelliteImage);
-  const leadsWithAI = leads.filter(l => l.aiImage);
+  const stats = {
+    total: leads.length,
+    withGps: leads.filter(l => l.latitude && l.longitude).length,
+    satellite: leads.filter(l => l.satelliteImage).length,
+    aiDone: leads.filter(l => l.aiImage).length,
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold">🏠 Machine à Leads — Pipeline Visuel</h1>
-        <p className="text-slate-400 mt-1">
-          Scanner → Image satellite → IA piscine → Email personnalisé
-        </p>
+      {/* ── HEADER ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            Machine à Leads Piscine
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">
+            DVF → Satellite → IA Piscine → Email personnalisé
+          </p>
+        </div>
+        {leads.length > 0 && !batchProcessing && leads.some(l => l.status === 'idle') && (
+          <button onClick={processBatch}
+            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-lg font-medium text-sm flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20">
+            <Zap className="w-4 h-4" /> Traiter les 3 premiers
+          </button>
+        )}
+        {batchProcessing && (
+          <div className="px-4 py-2 bg-purple-900/50 border border-purple-700 rounded-lg text-sm flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-purple-400" /> Pipeline en cours...
+          </div>
+        )}
       </div>
 
-      {/* Scanner Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search className="w-5 h-5" /> Scanner les propriétés DVF
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Commune IDF</label>
-              <select
-                value={codeInsee}
-                onChange={(e) => handleCommuneChange(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500"
-              >
-                {IDF_COMMUNES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
+      {/* ── PIPELINE VISUEL ── */}
+      <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-800/50 rounded-lg p-3">
+        <span className="flex items-center gap-1 text-blue-400"><Search className="w-3.5 h-3.5" /> 1. Scanner DVF</span>
+        <ArrowRight className="w-3 h-3" />
+        <span className="flex items-center gap-1 text-yellow-400"><Satellite className="w-3.5 h-3.5" /> 2. Image satellite</span>
+        <ArrowRight className="w-3 h-3" />
+        <span className="flex items-center gap-1 text-purple-400"><Sparkles className="w-3.5 h-3.5" /> 3. IA piscine</span>
+        <ArrowRight className="w-3 h-3" />
+        <span className="flex items-center gap-1 text-green-400"><Mail className="w-3.5 h-3.5" /> 4. Email perso</span>
+      </div>
+
+      {/* ── SCANNER ── */}
+      <Card className="border-blue-900/50">
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-3 items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Commune</label>
+              <select value={codeInsee} onChange={(e) => handleCommuneChange(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none">
+                {IDF_COMMUNES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Prix min</label>
+            <div className="w-28">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Prix min</label>
               <input type="text" value={prixMin} onChange={(e) => setPrixMin(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Prix max</label>
+            <div className="w-28">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Prix max</label>
               <input type="text" value={prixMax} onChange={(e) => setPrixMax(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500" />
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:border-blue-500 focus:outline-none" />
             </div>
-            <div className="flex items-end">
-              <button onClick={handleScan} disabled={loading}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 rounded-lg font-medium flex items-center justify-center gap-2">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Scanner
-              </button>
-            </div>
+            <button onClick={handleScan} disabled={loading}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              Scanner DVF
+            </button>
           </div>
-          {error && <p className="mt-3 text-red-400 text-sm">{error}</p>}
+          {error && <p className="mt-2 text-red-400 text-xs">{error}</p>}
         </CardContent>
       </Card>
 
-      {/* Stats */}
+      {/* ── STATS ── */}
       {leads.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-slate-800 rounded-lg p-4 text-center">
-            <p className="text-3xl font-bold text-blue-400">{leads.length}</p>
-            <p className="text-xs text-slate-400 mt-1">Propriétés trouvées</p>
-          </div>
-          <div className="bg-slate-800 rounded-lg p-4 text-center">
-            <p className="text-3xl font-bold text-yellow-400">{leadsWithCoords.length}</p>
-            <p className="text-xs text-slate-400 mt-1">Avec coordonnées GPS</p>
-          </div>
-          <div className="bg-slate-800 rounded-lg p-4 text-center">
-            <p className="text-3xl font-bold text-purple-400">{leadsWithSatellite.length}</p>
-            <p className="text-xs text-slate-400 mt-1">Images satellite</p>
-          </div>
-          <div className="bg-slate-800 rounded-lg p-4 text-center">
-            <p className="text-3xl font-bold text-green-400">{leadsWithAI.length}</p>
-            <p className="text-xs text-slate-400 mt-1">IA avant/après</p>
-          </div>
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { n: stats.total, label: 'Propriétés', color: 'text-blue-400' },
+            { n: stats.withGps, label: 'Avec GPS', color: 'text-yellow-400' },
+            { n: stats.satellite, label: 'Satellites', color: 'text-cyan-400' },
+            { n: stats.aiDone, label: 'IA prêts', color: 'text-green-400' },
+          ].map((s, i) => (
+            <div key={i} className="bg-slate-800/80 rounded-lg p-3 text-center">
+              <p className={`text-2xl font-bold ${s.color}`}>{s.n}</p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">{s.label}</p>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Lead Cards */}
-      <div className="space-y-4">
-        {leads.map((lead) => {
+      {/* ── LEAD CARDS ── */}
+      <div className="space-y-3">
+        {leads.map((lead, idx) => {
           const isExpanded = expandedLead === lead.id;
           const isProcessing = processingId === lead.id;
+          const sc = statusConfig[lead.status];
+          const hasCoords = lead.latitude && lead.longitude;
 
           return (
-            <Card key={lead.id} className={`overflow-hidden transition-all ${isExpanded ? 'ring-1 ring-blue-500' : ''}`}>
-              <CardContent className="p-0">
-                {/* Lead Header */}
-                <div
-                  className="p-4 cursor-pointer hover:bg-slate-800/50 transition-colors"
-                  onClick={() => setExpandedLead(isExpanded ? null : lead.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 flex-1">
-                      {/* Mini satellite preview */}
-                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-700 flex-shrink-0">
-                        {lead.satelliteImage ? (
-                          <img src={lead.satelliteImage} alt="Satellite" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Satellite className="w-6 h-6 text-slate-500" />
-                          </div>
-                        )}
-                      </div>
+            <div key={lead.id} className={`rounded-xl border transition-all ${isExpanded ? 'border-blue-700 bg-slate-900' : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'}`}>
+              {/* ── ROW ── */}
+              <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => setExpandedLead(isExpanded ? null : lead.id)}>
+                {/* Numéro */}
+                <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400 flex-shrink-0">
+                  {idx + 1}
+                </div>
 
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-sm truncate">
-                          {lead.adresse || 'Adresse non renseignée'}
-                        </h3>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
-                          <span className="flex items-center gap-1">
-                            <MapPin className="w-3 h-3" /> {lead.ville} ({lead.code_postal})
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Euro className="w-3 h-3" /> {formatPrice(lead.prix)}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Maximize className="w-3 h-3" /> {lead.surface_terrain}m²
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                {/* Miniature satellite */}
+                <div className="w-12 h-12 rounded-lg overflow-hidden bg-slate-800 flex-shrink-0 border border-slate-700">
+                  {lead.satelliteImage
+                    ? <img src={lead.satelliteImage} alt="" className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center"><Satellite className="w-5 h-5 text-slate-600" /></div>
+                  }
+                </div>
 
-                    <div className="flex items-center gap-3">
-                      {statusBadge(lead.status)}
-
-                      {/* Action buttons */}
-                      {lead.status === 'idle' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); processLead(lead); }}
-                          disabled={isProcessing}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium flex items-center gap-1"
-                        >
-                          <Sparkles className="w-3 h-3" /> Traiter
-                        </button>
-                      )}
-                      {lead.status === 'satellite_ready' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); generatePool(lead); }}
-                          disabled={isProcessing}
-                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium flex items-center gap-1"
-                        >
-                          <Sparkles className="w-3 h-3" /> Générer IA
-                        </button>
-                      )}
-                      {lead.status === 'ai_ready' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); }}
-                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-xs font-medium flex items-center gap-1"
-                        >
-                          <Mail className="w-3 h-3" /> Envoyer
-                        </button>
-                      )}
-
-                      {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                    </div>
+                {/* Infos */}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{lead.adresse || 'Adresse NC'}</p>
+                  <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+                    <span>{lead.ville}</span>
+                    <span className="font-semibold text-white">{fmt(lead.prix)}</span>
+                    <span>{lead.surface_terrain}m²</span>
                   </div>
                 </div>
 
-                {/* Expanded: AVANT / APRÈS Side by Side */}
-                {isExpanded && (
-                  <div className="border-t border-slate-700 p-4 bg-slate-900/50">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* AVANT — Image Satellite */}
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Satellite className="w-4 h-4 text-blue-400" />
-                          <h4 className="font-semibold text-sm text-blue-400">AVANT — Vue satellite</h4>
-                        </div>
-                        <div className="aspect-square rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
-                          {lead.satelliteImage ? (
-                            <img src={lead.satelliteImage} alt="Vue satellite" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
-                              <Satellite className="w-12 h-12 mb-2" />
-                              <p className="text-sm">Cliquer "Traiter" pour charger</p>
-                              {lead.latitude ? (
-                                <p className="text-xs mt-1 text-slate-600">GPS: {lead.latitude.toFixed(4)}, {lead.longitude.toFixed(4)}</p>
-                              ) : (
-                                <p className="text-xs mt-1 text-red-400">Pas de coordonnées GPS</p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                {/* Status */}
+                <span className={`px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap ${sc.color}`}>
+                  {sc.icon} {sc.label}
+                </span>
 
-                      {/* APRÈS — IA Piscine */}
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <Sparkles className="w-4 h-4 text-green-400" />
-                          <h4 className="font-semibold text-sm text-green-400">APRÈS — IA Piscine</h4>
-                        </div>
-                        <div className="aspect-square rounded-lg overflow-hidden bg-slate-800 border border-slate-700">
-                          {lead.aiImage ? (
-                            <img src={lead.aiImage} alt="IA Piscine" className="w-full h-full object-cover" />
-                          ) : lead.status === 'ai_generating' ? (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-purple-400">
-                              <Loader2 className="w-12 h-12 mb-2 animate-spin" />
-                              <p className="text-sm">Génération IA en cours...</p>
-                              <p className="text-xs mt-1 text-slate-500">Stability AI SDXL Inpainting</p>
-                            </div>
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
-                              <Sparkles className="w-12 h-12 mb-2" />
-                              <p className="text-sm">{lead.satelliteImage ? 'Prêt pour génération IA' : 'En attente de satellite'}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Property Details */}
-                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="bg-slate-800 rounded p-3">
-                        <p className="text-xs text-slate-400">Prix</p>
-                        <p className="font-bold text-lg">{formatPrice(lead.prix)}</p>
-                      </div>
-                      <div className="bg-slate-800 rounded p-3">
-                        <p className="text-xs text-slate-400">Terrain</p>
-                        <p className="font-bold text-lg">{lead.surface_terrain}m²</p>
-                      </div>
-                      <div className="bg-slate-800 rounded p-3">
-                        <p className="text-xs text-slate-400">Ville</p>
-                        <p className="font-bold text-sm">{lead.ville}</p>
-                      </div>
-                      <div className="bg-slate-800 rounded p-3">
-                        <p className="text-xs text-slate-400">Date vente</p>
-                        <p className="font-bold text-sm">
-                          {lead.date_mutation ? new Date(lead.date_mutation).toLocaleDateString('fr-FR') : 'N/A'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Full pipeline action */}
-                    {lead.status === 'idle' && (
-                      <div className="mt-4 flex gap-3">
-                        <button
-                          onClick={() => fetchSatellite(lead)}
-                          disabled={isProcessing}
-                          className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 rounded-lg font-medium flex items-center justify-center gap-2"
-                        >
-                          <Satellite className="w-4 h-4" /> Satellite seul
-                        </button>
-                        <button
-                          onClick={() => processLead(lead)}
-                          disabled={isProcessing}
-                          className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg font-medium flex items-center justify-center gap-2"
-                        >
-                          <Sparkles className="w-4 h-4" /> Pipeline complet (Satellite + IA)
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                {/* CTA */}
+                {lead.status === 'idle' && hasCoords && !isProcessing && (
+                  <button onClick={(e) => { e.stopPropagation(); processLead(lead.id); }}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors whitespace-nowrap">
+                    <Play className="w-3 h-3" /> Traiter
+                  </button>
                 )}
-              </CardContent>
-            </Card>
+                {(lead.status === 'loading_satellite' || lead.status === 'loading_ai') && (
+                  <Loader2 className="w-5 h-5 animate-spin text-purple-400 flex-shrink-0" />
+                )}
+
+                {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+              </div>
+
+              {/* ── EXPANDED: AVANT / APRÈS ── */}
+              {isExpanded && (
+                <div className="border-t border-slate-800 p-4">
+                  {/* Images side by side */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* AVANT */}
+                    <div>
+                      <p className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-1">
+                        <Satellite className="w-3.5 h-3.5" /> AVANT — Vue satellite
+                      </p>
+                      <div className="aspect-square rounded-xl overflow-hidden bg-slate-800 border border-slate-700 relative">
+                        {lead.satelliteImage ? (
+                          <img src={lead.satelliteImage} alt="Satellite" className="w-full h-full object-cover" />
+                        ) : lead.status === 'loading_satellite' ? (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <Loader2 className="w-10 h-10 animate-spin text-blue-400 mb-2" />
+                            <p className="text-xs text-blue-300">Chargement satellite...</p>
+                          </div>
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600">
+                            <Satellite className="w-10 h-10 mb-2" />
+                            <p className="text-xs">
+                              {hasCoords ? 'Cliquez "Traiter" ci-dessus' : 'Pas de coordonnées GPS'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* APRÈS */}
+                    <div>
+                      <p className="text-xs font-semibold text-green-400 mb-2 flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5" /> APRÈS — Projection IA piscine
+                      </p>
+                      <div className="aspect-square rounded-xl overflow-hidden bg-slate-800 border border-slate-700 relative">
+                        {lead.aiImage ? (
+                          <>
+                            <img src={lead.aiImage} alt="IA Piscine" className="w-full h-full object-cover" />
+                            <div className="absolute top-2 right-2 px-2 py-1 bg-green-600/90 rounded text-[10px] font-bold">
+                              PISCINE IA
+                            </div>
+                          </>
+                        ) : lead.status === 'loading_ai' ? (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-800/90">
+                            <Loader2 className="w-10 h-10 animate-spin text-purple-400 mb-2" />
+                            <p className="text-xs text-purple-300">Génération piscine IA...</p>
+                            <p className="text-[10px] text-slate-500 mt-1">Stability AI SDXL Inpainting</p>
+                          </div>
+                        ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600">
+                            <Sparkles className="w-10 h-10 mb-2" />
+                            <p className="text-xs">En attente du satellite</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Infos property */}
+                  <div className="mt-4 flex items-center gap-3 flex-wrap">
+                    <div className="bg-slate-800 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-slate-500">Prix</p>
+                      <p className="font-bold text-sm">{fmt(lead.prix)}</p>
+                    </div>
+                    <div className="bg-slate-800 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-slate-500">Terrain</p>
+                      <p className="font-bold text-sm">{lead.surface_terrain}m²</p>
+                    </div>
+                    <div className="bg-slate-800 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-slate-500">Commune</p>
+                      <p className="font-bold text-sm">{lead.ville}</p>
+                    </div>
+                    <div className="bg-slate-800 rounded-lg px-3 py-2">
+                      <p className="text-[10px] text-slate-500">GPS</p>
+                      <p className="font-bold text-sm text-slate-400">{lead.latitude?.toFixed(4)}, {lead.longitude?.toFixed(4)}</p>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="ml-auto flex gap-2">
+                      {lead.status === 'idle' && hasCoords && (
+                        <button onClick={() => processLead(lead.id)} disabled={!!processingId}
+                          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-slate-600 disabled:to-slate-600 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg shadow-blue-500/20">
+                          <Zap className="w-4 h-4" /> Lancer le pipeline
+                        </button>
+                      )}
+                      {lead.status === 'ai_ok' && (
+                        <button className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium flex items-center gap-2">
+                          <Mail className="w-4 h-4" /> Envoyer l'email
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
 
-      {/* Empty State */}
+      {/* ── EMPTY STATE ── */}
       {leads.length === 0 && !loading && (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <Satellite className="w-16 h-16 mx-auto text-slate-600 mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Aucun lead scanné</h3>
-            <p className="text-slate-400 mb-6">
-              Sélectionnez une commune et lancez le scan pour trouver des propriétés sans piscine
-            </p>
-            <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
-              <span className="flex items-center gap-1"><Search className="w-4 h-4" /> Scanner DVF</span>
-              <span>→</span>
-              <span className="flex items-center gap-1"><Satellite className="w-4 h-4" /> Image satellite</span>
-              <span>→</span>
-              <span className="flex items-center gap-1"><Sparkles className="w-4 h-4" /> IA piscine</span>
-              <span>→</span>
-              <span className="flex items-center gap-1"><Mail className="w-4 h-4" /> Email perso</span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="text-center py-20">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-slate-800 mb-4">
+            <Satellite className="w-10 h-10 text-slate-600" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">Lancez votre premier scan</h3>
+          <p className="text-slate-500 text-sm mb-6 max-w-md mx-auto">
+            Sélectionnez une commune d'Île-de-France ci-dessus et cliquez "Scanner DVF" pour trouver les propriétés avec grand terrain, idéales pour une piscine.
+          </p>
+          <div className="flex items-center justify-center gap-4 text-xs text-slate-600">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Données DVF publiques</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> Google Maps satellite</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> Stability AI</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Brevo email</span>
+          </div>
+        </div>
       )}
     </div>
   );
