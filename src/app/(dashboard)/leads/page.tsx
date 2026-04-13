@@ -86,18 +86,18 @@ export default function LeadsPage() {
   };
 
   // ─── STEP 2+3: Pipeline complet (satellite + IA) ──
-  const processLead = useCallback(async (leadId: string) => {
+  const processLead = async (leadId: string, lat: number, lon: number) => {
     setProcessingId(leadId);
     setExpandedLead(leadId);
 
     // SATELLITE
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'loading_satellite' } : l));
     try {
-      const lead = leads.find(l => l.id === leadId);
-      if (!lead) return;
-
-      const satResp = await fetch(`/api/satellite?lat=${lead.latitude}&lon=${lead.longitude}&zoom=19`);
-      if (!satResp.ok) throw new Error("Erreur satellite");
+      const satResp = await fetch(`/api/satellite?lat=${lat}&lon=${lon}&zoom=19`);
+      if (!satResp.ok) {
+        const errData = await satResp.json().catch(() => ({}));
+        throw new Error(errData.error || `Erreur satellite ${satResp.status}`);
+      }
       const satData = await satResp.json();
       const satUrl = `data:${satData.content_type};base64,${satData.image_base64}`;
 
@@ -109,7 +109,11 @@ export default function LeadsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image_base64: satData.image_base64 }),
       });
-      if (!aiResp.ok) throw new Error("Erreur IA");
+      if (!aiResp.ok) {
+        const errData = await aiResp.json().catch(() => ({}));
+        console.error('AI Error:', errData);
+        throw new Error(errData.error || `Erreur IA ${aiResp.status}`);
+      }
       const aiData = await aiResp.json();
 
       setLeads(prev => prev.map(l => l.id === leadId
@@ -117,19 +121,22 @@ export default function LeadsPage() {
         : l
       ));
     } catch (err) {
-      console.error(err);
-      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'satellite_ok' } : l));
+      console.error('Pipeline error:', err);
+      setLeads(prev => prev.map(l => l.id === leadId
+        ? { ...l, status: l.satelliteImage ? 'satellite_ok' : 'idle' }
+        : l
+      ));
     } finally {
       setProcessingId(null);
     }
-  }, [leads]);
+  };
 
   // ─── BATCH: Traiter les 5 premiers ────────────────
   const processBatch = async () => {
     setBatchProcessing(true);
     const toProcess = leads.filter(l => l.status === 'idle' && l.latitude && l.longitude).slice(0, 3);
     for (const lead of toProcess) {
-      await processLead(lead.id);
+      await processLead(lead.id, lead.latitude, lead.longitude);
     }
     setBatchProcessing(false);
   };
@@ -278,7 +285,7 @@ export default function LeadsPage() {
 
                 {/* CTA */}
                 {lead.status === 'idle' && hasCoords && !isProcessing && (
-                  <button onClick={(e) => { e.stopPropagation(); processLead(lead.id); }}
+                  <button onClick={(e) => { e.stopPropagation(); processLead(lead.id, lead.latitude, lead.longitude); }}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors whitespace-nowrap">
                     <Play className="w-3 h-3" /> Traiter
                   </button>
@@ -370,7 +377,7 @@ export default function LeadsPage() {
                     {/* Action buttons */}
                     <div className="ml-auto flex gap-2">
                       {lead.status === 'idle' && hasCoords && (
-                        <button onClick={() => processLead(lead.id)} disabled={!!processingId}
+                        <button onClick={() => processLead(lead.id, lead.latitude, lead.longitude)} disabled={!!processingId}
                           className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-slate-600 disabled:to-slate-600 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg shadow-blue-500/20">
                           <Zap className="w-4 h-4" /> Lancer le pipeline
                         </button>
